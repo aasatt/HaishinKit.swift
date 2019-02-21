@@ -1,14 +1,17 @@
 #if canImport(MetalKit)
 import AVFoundation
 import MetalKit
+import MetalPetal
 
 @available(iOS 9.0, *)
 open class MTHKView: MTKView {
     public var videoGravity: AVLayerVideoGravity = .resizeAspect
-
+    
     var position: AVCaptureDevice.Position = .back
     var orientation: AVCaptureVideoOrientation = .portrait
-
+    
+    var didConfigureDrawing = false
+    
     var displayImage: CIImage?
     weak var currentStream: NetStream? {
         didSet {
@@ -16,22 +19,22 @@ open class MTHKView: MTKView {
         }
     }
     let colorSpace: CGColorSpace = CGColorSpaceCreateDeviceRGB()
-
+    
     public init(frame: CGRect) {
         super.init(frame: frame, device: MTLCreateSystemDefaultDevice())
+        configureDrawingIfNeded()
     }
-
+    
     public required init(coder aDecoder: NSCoder) {
         super.init(coder: aDecoder)
         self.device = MTLCreateSystemDefaultDevice()
     }
-
+    
     override open func awakeFromNib() {
         super.awakeFromNib()
-        delegate = self
-        enableSetNeedsDisplay = true
+        configureDrawingIfNeded()
     }
-
+    
     open func attachStream(_ stream: NetStream?) {
         if let stream: NetStream = stream {
             stream.mixer.videoIO.context = CIContext(mtlDevice: device!)
@@ -41,6 +44,16 @@ open class MTHKView: MTKView {
             }
         }
         currentStream = stream
+    }
+    
+    func configureDrawingIfNeded() {
+        guard !didConfigureDrawing else {
+            return
+        }
+        delegate = self
+        isPaused = true
+        enableSetNeedsDisplay = true
+        didConfigureDrawing = true
     }
 }
 
@@ -106,5 +119,6 @@ extension MTHKView: NetStreamDrawable {
             self.setNeedsDisplay()
         }
     }
+    
 }
 #endif

@@ -1,5 +1,5 @@
 import AVFoundation
-
+import MetalPetal
 final class VideoIOComponent: IOComponent {
     #if os(macOS)
     static let defaultAttributes: [NSString: NSObject] = [
@@ -23,10 +23,25 @@ final class VideoIOComponent: IOComponent {
                 objc_sync_exit(effects)
             }
             for effect in effects {
-                effect.ciContext = context
+                if let e = effect as? CIVisualEffect {
+                    e.ciContext = context
+                    continue
+                }
+                if let e = effect as? MTVisualEffect {
+                    e.mtContext = mtcontext
+                }
             }
         }
     }
+    
+    lazy var mtcontext: MTIContext? = {
+        let options = MTIContextOptions()
+        guard let device = MTLCreateSystemDefaultDevice(), let c = try? MTIContext(device: device, options: options) else {
+            return nil
+        }
+        return c
+    }()
+    
     var drawable: NetStreamDrawable?
     var formatDescription: CMVideoFormatDescription? {
         didSet {
@@ -358,25 +373,60 @@ final class VideoIOComponent: IOComponent {
         var imageBuffer: CVImageBuffer?
 
         if drawable != nil || !effects.isEmpty {
-            let image: CIImage = effect(buffer, info: sampleBuffer)
-            extent = image.extent
-            if !effects.isEmpty {
-                #if os(macOS)
-                CVPixelBufferPoolCreatePixelBuffer(nil, pixelBufferPool, &imageBuffer)
-                #else
-                if buffer.width != Int(extent.width) || buffer.height != Int(extent.height) {
+            if effects.contains(where: {$0 is MTVisualEffect}) {
+                let image: MTIImage = effect(buffer, info: sampleBuffer)
+                extent = image.extent
+                if !effects.isEmpty {
+                    #if os(macOS)
                     CVPixelBufferPoolCreatePixelBuffer(nil, pixelBufferPool, &imageBuffer)
-                }
-                #endif
-                if let imageBuffer = imageBuffer {
-                    CVPixelBufferLockBaseAddress(imageBuffer, [])
-                    defer {
-                        CVPixelBufferUnlockBaseAddress(imageBuffer, [])
+                    #else
+                    if buffer.width != Int(extent.width) || buffer.height != Int(extent.height) {
+                        CVPixelBufferPoolCreatePixelBuffer(nil, pixelBufferPool, &imageBuffer)
+                    }
+                    #endif
+//                    if let imageBuffer = imageBuffer {
+//                        CVPixelBufferLockBaseAddress(imageBuffer, [])
+//                        defer {
+//                            CVPixelBufferUnlockBaseAddress(imageBuffer, [])
+//                        }
+//                    }
+                    do {
+                        let success = try mtcontext?.render(image, to: imageBuffer ?? buffer)
+                    } catch {
+                        logger.error("Could not render in mtcontext with error: \(error)")
                     }
                 }
-                context?.render(image, to: imageBuffer ?? buffer)
+                do {
+                    if let output = try mtcontext?.makeCIImage(from: image) {
+                        drawable?.draw(image: output)
+                    } else {
+                        let image: CIImage = effect(buffer, info: sampleBuffer)
+                        drawable?.draw(image: image)
+                    }
+                } catch {
+                    logger.error("Could not make mtiimage from ci image: \(error)")
+                }
+            } else {
+                let image: CIImage = effect(buffer, info: sampleBuffer)
+                extent = image.extent
+                if !effects.isEmpty {
+                    #if os(macOS)
+                    CVPixelBufferPoolCreatePixelBuffer(nil, pixelBufferPool, &imageBuffer)
+                    #else
+                    if buffer.width != Int(extent.width) || buffer.height != Int(extent.height) {
+                        CVPixelBufferPoolCreatePixelBuffer(nil, pixelBufferPool, &imageBuffer)
+                    }
+                    #endif
+                    if let imageBuffer = imageBuffer {
+                        CVPixelBufferLockBaseAddress(imageBuffer, [])
+                        defer {
+                            CVPixelBufferUnlockBaseAddress(imageBuffer, [])
+                        }
+                    }
+                    context?.render(image, to: imageBuffer ?? buffer)
+                }
+                drawable?.draw(image: image)
             }
-            drawable?.draw(image: image)
         }
 
         encoder.encodeImageBuffer(
@@ -384,7 +434,6 @@ final class VideoIOComponent: IOComponent {
             presentationTimeStamp: sampleBuffer.presentationTimeStamp,
             duration: sampleBuffer.duration
         )
-
         mixer?.recorder.appendPixelBuffer(imageBuffer ?? buffer, withPresentationTime: sampleBuffer.presentationTimeStamp)
     }
 
@@ -392,17 +441,40 @@ final class VideoIOComponent: IOComponent {
     func effect(_ buffer: CVImageBuffer, info: CMSampleBuffer?) -> CIImage {
         var image = CIImage(cvPixelBuffer: buffer)
         for effect in effects {
-            image = effect.execute(image, info: info)
+            guard let e = effect as? CIVisualEffect else {
+                continue
+            }
+            image = e.execute(image, info: info)
         }
         return image
     }
+    
+    @inline(__always)
+    func effect(_ buffer: CVImageBuffer, info: CMSampleBuffer?) -> MTIImage {
+        var image = CIImage(cvPixelBuffer: buffer)
+        for effect in effects {
+            guard let e = effect as? CIVisualEffect else {
+                continue
+            }
+            image = e.execute(image, info: info)
+        }
+        var mtImage = MTIImage.init(ciImage: image)
+        for effect in effects {
+            guard let e = effect as? MTVisualEffect else {
+                continue
+            }
+            mtImage = e.execute(mtImage, info: info)
+        }
+        return mtImage
+    }
+
 
     func registerEffect(_ effect: VisualEffect) -> Bool {
         objc_sync_enter(effects)
         defer {
             objc_sync_exit(effects)
         }
-        effect.ciContext = context
+        effect.removeContext()
         return effects.insert(effect).inserted
     }
 
@@ -411,7 +483,7 @@ final class VideoIOComponent: IOComponent {
         defer {
             objc_sync_exit(effects)
         }
-        effect.ciContext = nil
+        effect.removeContext()
         return effects.remove(effect) != nil
     }
 }

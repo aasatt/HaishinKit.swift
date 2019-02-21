@@ -26,6 +26,6 @@ Pod::Spec.new do |s|
 
   s.source_files = "Sources/**/*.swift"
   s.dependency 'Logboard', '~> 2.0.0'
-
+  s.dependency 'MetalPetal/Swift', '~> 1.2.0'
 end
 
