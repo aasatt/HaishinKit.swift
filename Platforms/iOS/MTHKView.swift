@@ -3,12 +3,18 @@ import AVFoundation
 import MetalKit
 import MetalPetal
 
+public protocol MTHKViewFrameDelegate: class {
+    func didStartPushingFrames()
+}
+
 @available(iOS 9.0, *)
 open class MTHKView: MTKView {
     public var videoGravity: AVLayerVideoGravity = .resizeAspect
     
     var position: AVCaptureDevice.Position = .back
     var orientation: AVCaptureVideoOrientation = .portrait
+    
+    open weak var frameDelegate: MTHKViewFrameDelegate?
     
     var didConfigureDrawing = false
     
@@ -110,6 +116,7 @@ extension MTHKView: MTKViewDelegate {
             context.render(scaledImage, to: drawable.texture, commandBuffer: commandBuffer, bounds: bounds, colorSpace: colorSpace)
         }
         commandBuffer.present(drawable)
+        frameDelegate?.didStartPushingFrames()
         commandBuffer.commit()
     }
     #endif
