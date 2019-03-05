@@ -53,6 +53,7 @@ open class MTHKView: MTKView {
         delegate = self
         isPaused = true
         enableSetNeedsDisplay = true
+        framebufferOnly = false
         didConfigureDrawing = true
     }
 }
@@ -103,7 +104,11 @@ extension MTHKView: MTKViewDelegate {
         let scaledImage: CIImage = image
             .transformed(by: CGAffineTransform(translationX: translationX, y: translationY))
             .transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
-        context.render(scaledImage, to: drawable.texture, commandBuffer: commandBuffer, bounds: bounds, colorSpace: colorSpace)
+        if position == .front {
+            context.render(scaledImage.oriented(forExifOrientation: 2), to: drawable.texture, commandBuffer: commandBuffer, bounds: bounds, colorSpace: colorSpace)
+        } else {
+            context.render(scaledImage, to: drawable.texture, commandBuffer: commandBuffer, bounds: bounds, colorSpace: colorSpace)
+        }
         commandBuffer.present(drawable)
         commandBuffer.commit()
     }
