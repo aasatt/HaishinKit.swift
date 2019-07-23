@@ -15,7 +15,8 @@ open class MTHKView: MTKView {
     var orientation: AVCaptureVideoOrientation = .portrait
     
     open weak var frameDelegate: MTHKViewFrameDelegate?
-    
+    open var hasStreamEnded = false
+
     var didConfigureDrawing = false
     
     var displayImage: CIImage?
@@ -110,7 +111,7 @@ extension MTHKView: MTKViewDelegate {
         let scaledImage: CIImage = image
             .transformed(by: CGAffineTransform(translationX: translationX, y: translationY))
             .transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
-        if position == .front {
+        if position == .front, !hasStreamEnded {
             context.render(scaledImage.oriented(forExifOrientation: 2), to: drawable.texture, commandBuffer: commandBuffer, bounds: bounds, colorSpace: colorSpace)
         } else {
             context.render(scaledImage, to: drawable.texture, commandBuffer: commandBuffer, bounds: bounds, colorSpace: colorSpace)
