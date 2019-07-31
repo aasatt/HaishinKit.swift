@@ -435,6 +435,10 @@ open class RTMPConnection: EventDispatcher {
                 for (_, stream) in streams {
                     stream.delegate?.didPublishInsufficientBW(stream, withConnection: self)
                 }
+            } else if count == 0 {
+                for (_, stream) in streams {
+                    stream.delegate?.didPublishSufficientBW(stream, withConnection: self)
+                }
             }
             previousQueueBytesOut.removeFirst()
         }
